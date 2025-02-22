@@ -53,6 +53,17 @@ fun DueItemForm() {
     val scope = rememberCoroutineScope()
     val database = remember { AppDatabase.getDatabase(context) }
     
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedDate.toEpochDay() * 24 * 60 * 60 * 1000
+    )
+    
+    // Effect to update selectedDate when date picker selection changes
+    LaunchedEffect(datePickerState.selectedDateMillis) {
+        datePickerState.selectedDateMillis?.let { millis ->
+            selectedDate = LocalDate.ofEpochDay(millis / (24 * 60 * 60 * 1000))
+        }
+    }
+    
     val items by database.dueItemDao().getAllItems().collectAsState(initial = emptyList())
 
     Column(
@@ -94,27 +105,27 @@ fun DueItemForm() {
             DatePickerDialog(
                 onDismissRequest = { showDatePicker = false },
                 confirmButton = {
-                    TextButton(onClick = { showDatePicker = false }) {
+                    TextButton(
+                        onClick = { 
+                            showDatePicker = false
+                        }
+                    ) {
                         Text("OK")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDatePicker = false }) {
+                    TextButton(
+                        onClick = { 
+                            showDatePicker = false
+                        }
+                    ) {
                         Text("Cancel")
                     }
                 }
             ) {
                 DatePicker(
-                    state = rememberDatePickerState(
-                        initialSelectedDateMillis = selectedDate
-                            .toEpochDay() * 24 * 60 * 60 * 1000
-                    ),
-                    showModeToggle = false,
-//                    onDateChange = { millis ->
-//                        millis?.let {
-//                            selectedDate = LocalDate.ofEpochDay(it / (24 * 60 * 60 * 1000))
-//                        }
-//                    }
+                    state = datePickerState,
+                    showModeToggle = false
                 )
             }
         }
@@ -151,6 +162,11 @@ fun DueItemForm() {
                         scope.launch {
                             database.dueItemDao().delete(item)
                         }
+                    },
+                    onEdit = {
+                        scope.launch {
+                            database.dueItemDao().update(it)
+                        }
                     }
                 )
             }
@@ -162,20 +178,37 @@ fun DueItemForm() {
 @Composable
 fun DueItemCard(
     item: DueItem,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEdit: (DueItem) -> Unit
 ) {
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editedName by remember(item) { mutableStateOf(item.name) }
+    var editedDate by remember(item) { mutableStateOf(item.dueDate) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = editedDate.toEpochDay() * 24 * 60 * 60 * 1000
+    )
+    
+    LaunchedEffect(datePickerState.selectedDateMillis) {
+        datePickerState.selectedDateMillis?.let { millis ->
+            editedDate = LocalDate.ofEpochDay(millis / (24 * 60 * 60 * 1000))
+        }
+    }
+
     val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), item.dueDate)
     val backgroundColor = when {
-        daysUntilDue <= 60 -> Color(0xFFF55B72) // Red for <= 60 days
-        daysUntilDue <= 100 -> Color(0xFFFAF2A0) // Yellow for <= 100 days
-        else -> MaterialTheme.colorScheme.surface // Default surface color
+        daysUntilDue <= 60 -> Color(0xFFF55B72)
+        daysUntilDue <= 100 -> Color(0xFFFAF2A0)
+        else -> MaterialTheme.colorScheme.surface
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = backgroundColor
-        )
+        ),
+        onClick = { showEditDialog = true }
     ) {
         Row(
             modifier = Modifier
@@ -204,6 +237,84 @@ fun DueItemCard(
                     tint = if (daysUntilDue <= 60) Color.White else MaterialTheme.colorScheme.error
                 )
             }
+        }
+    }
+
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Edit Item") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        label = { Text("Item Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { showDatePicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = editedDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = "Select date"
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onEdit(item.copy(name = editedName, dueDate = editedDate))
+                        showEditDialog = false
+                    },
+                    enabled = editedName.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(
+                state = datePickerState,
+                showModeToggle = false
+            )
         }
     }
 }
