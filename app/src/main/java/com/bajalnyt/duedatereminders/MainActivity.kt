@@ -26,9 +26,15 @@ import java.time.format.FormatStyle
 import androidx.compose.ui.graphics.Color
 import java.time.temporal.ChronoUnit
 import androidx.compose.foundation.background
+import com.bajalnyt.duedatereminders.ui.theme.WarningRed
+import com.bajalnyt.duedatereminders.ui.theme.WarningYellow
 
 class MainActivity : ComponentActivity() {
     private lateinit var notificationHelper: NotificationHelper
+
+
+    val WarningRed = Color(0xFFFF0000)
+    val WarningYellow = Color(0xFFFFFF00)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +67,6 @@ fun DueItemForm(notificationHelper: NotificationHelper) {
         initialSelectedDateMillis = selectedDate.toEpochDay() * 24 * 60 * 60 * 1000
     )
     
-    // Effect to update selectedDate when date picker selection changes
     LaunchedEffect(datePickerState.selectedDateMillis) {
         datePickerState.selectedDateMillis?.let { millis ->
             selectedDate = LocalDate.ofEpochDay(millis / (24 * 60 * 60 * 1000))
@@ -70,38 +75,133 @@ fun DueItemForm(notificationHelper: NotificationHelper) {
     
     val items by database.dueItemDao().getAllItems().collectAsState(initial = emptyList())
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Item Name") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        
-        OutlinedCard(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { showDatePicker = true }
+    Scaffold(
+        topBar = {
+            SmallTopAppBar(
+                title = { Text("Due Date Reminders") },
+                colors = TopAppBarDefaults.smallTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Text(
-                    text = selectedDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Icon(
-                    imageVector = Icons.Default.Email,
-                    contentDescription = "Select date"
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        "Add New Item",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Item Name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    
+                    OutlinedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { showDatePicker = true }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = selectedDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = "Select date"
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val dueItem = DueItem(
+                                        name = name,
+                                        dueDate = selectedDate
+                                    )
+                                    database.dueItemDao().insert(dueItem)
+                                    name = ""
+                                } catch (e: Exception) {
+                                    // Handle error
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = name.isNotBlank()
+                    ) {
+                        Text("Add Item")
+                    }
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (items.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No items yet",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+                
+                items(items) { item ->
+                    DueItemCard(
+                        item = item,
+                        onDelete = {
+                            scope.launch {
+                                database.dueItemDao().delete(item)
+                            }
+                        },
+                        onEdit = {
+                            scope.launch {
+                                database.dueItemDao().update(it)
+                                val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), it.dueDate)
+                                if (daysUntilDue <= 60) {
+                                    notificationHelper.showExpirationNotification(it.name)
+                                }
+                            }
+                        },
+                        notificationHelper = notificationHelper
+                    )
+                }
             }
         }
 
@@ -109,20 +209,12 @@ fun DueItemForm(notificationHelper: NotificationHelper) {
             DatePickerDialog(
                 onDismissRequest = { showDatePicker = false },
                 confirmButton = {
-                    TextButton(
-                        onClick = { 
-                            showDatePicker = false
-                        }
-                    ) {
+                    TextButton(onClick = { showDatePicker = false }) {
                         Text("OK")
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = { 
-                            showDatePicker = false
-                        }
-                    ) {
+                    TextButton(onClick = { showDatePicker = false }) {
                         Text("Cancel")
                     }
                 }
@@ -130,54 +222,6 @@ fun DueItemForm(notificationHelper: NotificationHelper) {
                 DatePicker(
                     state = datePickerState,
                     showModeToggle = false
-                )
-            }
-        }
-
-        Button(
-            onClick = {
-                scope.launch {
-                    try {
-                        val dueItem = DueItem(
-                            name = name,
-                            dueDate = selectedDate
-                        )
-                        database.dueItemDao().insert(dueItem)
-                        name = ""
-                    } catch (e: Exception) {
-                        // Handle error
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = name.isNotBlank()
-        ) {
-            Text("Add Item")
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(items) { item ->
-                DueItemCard(
-                    item = item,
-                    onDelete = {
-                        scope.launch {
-                            database.dueItemDao().delete(item)
-                        }
-                    },
-                    onEdit = {
-                        scope.launch {
-                            database.dueItemDao().update(it)
-                            // Check if the updated item is within 60 days
-                            val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), it.dueDate)
-                            if (daysUntilDue <= 60) {
-                                notificationHelper.showExpirationNotification(it.name)
-                            }
-                        }
-                    },
-                    notificationHelper = notificationHelper
                 )
             }
         }
@@ -208,21 +252,20 @@ fun DueItemCard(
     }
 
     val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), item.dueDate)
-    val backgroundColor = when {
+    val (backgroundColor, textColor) = when {
         daysUntilDue <= 60 -> {
-            // Show notification when card becomes red
             LaunchedEffect(Unit) {
                 notificationHelper.showExpirationNotification(item.name)
             }
-            Color(0xFFF55B72)
+            WarningRed to Color.White
         }
-        daysUntilDue <= 100 -> Color(0xFFFAF2A0)
-        else -> MaterialTheme.colorScheme.surface
+        daysUntilDue <= 100 -> WarningYellow to Color.Black
+        else -> MaterialTheme.colorScheme.surface to Color.Unspecified
     }
 
-    Card(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
+        colors = CardDefaults.elevatedCardColors(
             containerColor = backgroundColor
         ),
         onClick = { showEditDialog = true }
@@ -238,12 +281,17 @@ fun DueItemCard(
                 Text(
                     text = item.name,
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (daysUntilDue <= 60) Color.White else Color.Unspecified
+                    color = textColor
                 )
                 Text(
                     text = item.dueDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (daysUntilDue <= 60) Color.White else Color.Unspecified
+                    color = textColor
+                )
+                Text(
+                    text = "Due in ${daysUntilDue} days",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor.copy(alpha = 0.7f)
                 )
             }
             
@@ -251,7 +299,7 @@ fun DueItemCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete item",
-                    tint = if (daysUntilDue <= 60) Color.White else MaterialTheme.colorScheme.error
+                    tint = textColor
                 )
             }
         }
