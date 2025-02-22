@@ -33,9 +33,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var notificationHelper: NotificationHelper
 
 
-    val WarningRed = Color(0xFFFF0000)
-    val WarningYellow = Color(0xFFFFFF00)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         notificationHelper = NotificationHelper(this)
