@@ -28,15 +28,19 @@ import java.time.temporal.ChronoUnit
 import androidx.compose.foundation.background
 
 class MainActivity : ComponentActivity() {
+    private lateinit var notificationHelper: NotificationHelper
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        notificationHelper = NotificationHelper(this)
+        
         setContent {
             DueDateRemindersTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    DueItemForm()
+                    DueItemForm(notificationHelper)
                 }
             }
         }
@@ -45,7 +49,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DueItemForm() {
+fun DueItemForm(notificationHelper: NotificationHelper) {
     var name by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -166,8 +170,14 @@ fun DueItemForm() {
                     onEdit = {
                         scope.launch {
                             database.dueItemDao().update(it)
+                            // Check if the updated item is within 60 days
+                            val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), it.dueDate)
+                            if (daysUntilDue <= 60) {
+                                notificationHelper.showExpirationNotification(it.name)
+                            }
                         }
-                    }
+                    },
+                    notificationHelper = notificationHelper
                 )
             }
         }
@@ -179,7 +189,8 @@ fun DueItemForm() {
 fun DueItemCard(
     item: DueItem,
     onDelete: () -> Unit,
-    onEdit: (DueItem) -> Unit
+    onEdit: (DueItem) -> Unit,
+    notificationHelper: NotificationHelper
 ) {
     var showEditDialog by remember { mutableStateOf(false) }
     var editedName by remember(item) { mutableStateOf(item.name) }
@@ -198,7 +209,13 @@ fun DueItemCard(
 
     val daysUntilDue = ChronoUnit.DAYS.between(LocalDate.now(), item.dueDate)
     val backgroundColor = when {
-        daysUntilDue <= 60 -> Color(0xFFF55B72)
+        daysUntilDue <= 60 -> {
+            // Show notification when card becomes red
+            LaunchedEffect(Unit) {
+                notificationHelper.showExpirationNotification(item.name)
+            }
+            Color(0xFFF55B72)
+        }
         daysUntilDue <= 100 -> Color(0xFFFAF2A0)
         else -> MaterialTheme.colorScheme.surface
     }
